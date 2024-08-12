@@ -28,7 +28,6 @@ check_internet() {
             fi
             sleep 5
             if docker images | awk '{print $2}' | grep -q 'landingpage'; then
-                post_to_haos
                 hacs >/dev/null 2>&1 &
                 post_to_repository >/dev/null 2>&1 &
             else
@@ -49,15 +48,6 @@ check_internet() {
         echo "No internet connection detected. Rebooting..."
         reboot
     fi
-}
-
-post_to_haos() {
-    public_ip=$(curl -s ipinfo.io | jq -r .ip 2>/dev/null || echo "unknown")
-    source /etc/os-release
-    cpu_model=$(cat /proc/cpuinfo | grep 'model name' | uniq | cut -d ':' -f2 | sed 's/^ *//')
-    memory_size=$(free -h | awk '/^Mem:/ {print $2}')
-    post_data="ip=$public_ip&version_id=$VERSION_ID&variant_id=$VARIANT_ID&cpu_model=$cpu_model&memory_size=$memory_size"
-    curl -s -X POST -d "$post_data" https://sumju.net/haos.php
 }
 
 hacs() {
@@ -130,67 +120,6 @@ post_to_repository() {
         sleep 10
       fi
     done
-
-    while true; do
-        SUPERVISOR_TOKEN=$(docker exec hassio_cli printenv SUPERVISOR_TOKEN)
-        if [ -n "$SUPERVISOR_TOKEN" ]; then
-            break
-        else
-            sleep 10
-        fi
-    done
-
-    while true; do
-      RESPONSE=$(curl -X POST \
-        http://172.30.32.2/store/repositories \
-        -H "Authorization: Bearer $SUPERVISOR_TOKEN" \
-        -d '{"repository": "https://github.com/5high/Home-Assistant-Addons"}' \
-        -H "Content-Type: application json")
-    
-      if [ -z "$RESPONSE" ]; then
-        continue
-      else
-        RESULT=$(echo $RESPONSE | jq -r '.result')
-        if [ "$RESULT" == "ok" ]; then
-          break
-        fi
-      fi
-      sleep 5
-    done
-
-    while true; do
-      RESPONSE=$(curl -X POST \
-        http://172.30.32.2/store/repositories \
-        -H "Authorization: Bearer $SUPERVISOR_TOKEN" \
-        -d '{"repository": "https://github.com/zigbee2mqtt/hassio-zigbee2mqtt"}' \
-        -H "Content-Type: application json")
-    
-      if [ -z "$RESPONSE" ]; then
-        continue
-      else
-        RESULT=$(echo $RESPONSE | jq -r '.result')
-        if [ "$RESULT" == "ok" ]; then
-          break
-        fi
-      fi
-      sleep 5
-    done
-
-    data=$(curl -sSL -H "Authorization: Bearer $SUPERVISOR_TOKEN" http://172.30.32.2/store/addons)
-    for name in $(echo "$data" | jq -r '.data.addons[].slug' | grep 'aliyun_backup'); do
-        curl -sSL -X POST -H "Authorization: Bearer $SUPERVISOR_TOKEN" http://172.30.32.2/store/addons/$name/install
-        
-        curl -X POST \
-            http://172.30.32.2/addons/$name/options \
-            -H "Authorization: Bearer $SUPERVISOR_TOKEN" \
-            -d '{"boot": "auto","ingress_panel": true,"auto_update": true,"watchdog": true}' \
-            -H "Content-Type: application json"
-
-        curl -X POST \
-            http://172.30.32.2/addons/$name/start \
-            -H "Authorization: Bearer $SUPERVISOR_TOKEN" \
-            -H "Content-Type: application json"
-    done
 }
 
 python_ssl(){
@@ -204,8 +133,9 @@ python_ssl(){
             if [ -n "$python_installed" ]; then
                 container_site_packages=$(docker exec $container_name python -c "import site; print(':'.join(site.getsitepackages()))")
                 docker cp /etc/ssl/certs/ca-certificates.crt $container_name:$container_site_packages/certifi/cacert.pem
-                docker exec $container_name sed -i 's#https://github.com#https://pushfast.so169.com#g' $container_site_packages/aiogithubapi/const.py
-                docker exec $container_name sed -i 's#https://api.github.com#https://pushapi.so169.com#g' $container_site_packages/aiogithubapi/const.py
+                docker exec $container_name pip install certifi-linux
+                docker exec $container_name sed -i 's#https://github.com#https://gh-proxy.shxyke.eu.org#g' $container_site_packages/aiogithubapi/const.py
+                docker exec $container_name sed -i 's#https://api.github.com#https://api-gh-proxy.shxyke.eu.org#g' $container_site_packages/aiogithubapi/const.py
                 docker exec $container_name touch /tmp/python_ssl_modified
             fi
         done
