@@ -9,8 +9,6 @@ on:
         description: 'SSH connection to Actions'
         required: false
         default: 'false'
-  schedule:
-    - cron: '0 18 * * *'
   watch:
     types: [started]
 
@@ -27,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [rpi3_64,rpi4_64,rpi5_64,ova,generic_x86_64,generic_aarch64,green,yellow]
+        target: [ova,generic_x86_64]
 
     steps:
     - name: Checkout
@@ -39,7 +37,6 @@ jobs:
         ver=$(curl -s https://version.home-assistant.io/stable.json | jq -r '.hassos."ova"')
         old=$(curl -s https://sumju.net/stable.json | jq -r '.hassos."ova"')
         echo "HASSOS_VERSION=${ver}" >> $GITHUB_ENV
-        echo "HA_VER=${old}" >> $GITHUB_ENV
         
     - name: Compare HassOS versions
       run: |
@@ -77,8 +74,8 @@ jobs:
         cp -r rootfs-overlay HassOS/buildroot-external
         cd HassOS
         git submodule update --init
-        wget ${{ secrets.KEY_URL }}/key.pem --no-check-certificate
-        wget ${{ secrets.KEY_URL }}/cert.pem --no-check-certificate
+        # wget ${{ secrets.KEY_URL }}/key.pem --no-check-certificate
+        # wget ${{ secrets.KEY_URL }}/cert.pem --no-check-certificate
         sed -i 's/-e\ BUILDER_UID/-e TZ=Asia\/Shanghai\ -e BUILDER_UID/g' buildroot-external/package/hassio/hassio.mk 
         sed -i 's/-e\ BUILDER_UID/-e TZ=Asia\/Shanghai\ -e BUILDER_UID/g' scripts/enter.sh
         sed -i 's/-e\ SUPERVISOR_NAME=hassio_supervisor/-e TZ=Asia\/Shanghai\ -e SUPERVISOR_NAME=hassio_supervisor/g' buildroot-external/rootfs-overlay/usr/sbin/hassos-supervisor
@@ -121,7 +118,7 @@ jobs:
         sed -i '/\[Service\]/a RestartSec=10' buildroot/package/nginx/nginx.service
         sed -i '/\[Service\]/a Restart=always' buildroot/package/nginx/nginx.service
         sed -i '/After=syslog.target network.target/ s/$/ hassos-supervisor.service/' buildroot/package/nginx/nginx.service
-        sed -i '/cd \$(TARGET_DIR) ;\\/i \ \ \ \ wget -O \$(TARGET_DIR)\/usr\/share\/ca-certificates\/itcommander.crt https:\/\/github.com\/5high\/HassOS-Actions\/raw\/main\/rootfs-overlay\/etc\/ssl\/certs\/rootCA.cer' buildroot/package/ca-certificates/ca-certificates.mk   
+        sed -i '/cd \$(TARGET_DIR) ;\\/i \ \ \ \ wget -O \$(TARGET_DIR)\/usr\/share\/ca-certificates\/itcommander.crt https:\/\/github.com\/aa889788\/HassOS-Actions\/raw\/main\/rootfs-overlay\/etc\/ssl\/certs\/rootCA.cer' buildroot/package/ca-certificates/ca-certificates.mk   
         
     - name: SSH connection to Actions
       uses: P3TERX/ssh2actions@v1.0.0
@@ -154,6 +151,12 @@ jobs:
     #     name: ${{matrix.target}}_Firmware
     #     path: HassOS/output/images
 
+    - name: Upload images to artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{matrix.target}}_Images
+        path: HassOS/output/images/haos_*
+
     - name: Upload images to release
       id: upload-release
       uses: svenstaro/upload-release-action@v2
@@ -165,35 +168,3 @@ jobs:
         overwrite: true
         file_glob: true
         body: "针对大陆地区网络专门优化的HassOS版本   欢迎关注Youtube频道https://youtube.com/@itcommander   博客地址https://sumju.net   官方硬件优惠卷领取https://sumju.net/?p=7943"
-    
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-
-    - name: Delete workflow runs
-      uses: 5high/delete-workflow-runs@main
-      with:
-        retain_days: 1
-        keep_minimum_runs: 1
-
-    - name: Remove old Releases
-      uses: dev-drprasad/delete-older-releases@v0.3.2
-      with:
-        keep_latest: 8
-        delete_tags: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          
-    - name: Notify on Telegram
-      uses: appleboy/telegram-action@master
-      with:
-        to: ${{ secrets.TELEGRAM_CHAT_ID }}
-        token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
-        message: "New release! Download it [here](${{ steps.upload-release.outputs.browser_download_url }})."
-
-    - name: Trigger download
-      run: |
-        curl -k -d "command=download_file" -X POST -H "Content-Type: application/x-www-form-urlencoded" $URL
-      env:
-        URL: ${{ secrets.URL }}
